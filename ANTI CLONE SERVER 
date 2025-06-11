@@ -1,0 +1,115 @@
+# Bundle both the trace-server and a sample anti-clone-bot integration for full setup
+
+import shutil
+
+# Setup paths
+bundle_path = "/mnt/data/blockmesh-trace-full"
+trace_path = os.path.join(bundle_path, "packages/trace-server")
+bot_path = os.path.join(bundle_path, "packages/anti-clone-bot/src")
+
+# Create necessary folders
+os.makedirs(trace_path + "/src", exist_ok=True)
+os.makedirs(trace_path + "/logs", exist_ok=True)
+os.makedirs(bot_path, exist_ok=True)
+
+# Write trace-server files
+with open(trace_path + "/.env", "w") as f:
+    f.write("PORT=3001\n")
+
+with open(trace_path + "/logs/incidents.json", "w") as f:
+    f.write("[]")
+
+with open(trace_path + "/package.json", "w") as f:
+    f.write('''{
+  "name": "trace-server",
+  "version": "1.0.0",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "ts-node src/index.ts"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.1",
+    "typescript": "^5.3.0"
+  }
+}
+''')
+
+with open(trace_path + "/src/index.ts", "w") as f:
+    f.write('''import express from 'express';
+import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
+
+dotenv.config();
+
+const app = express();
+const PORT = process.env.PORT || 3001;
+
+const logFile = path.join(__dirname, '../logs/incidents.json');
+
+app.use(express.json());
+
+// Ensure log file exists
+if (!fs.existsSync(logFile)) {
+  fs.writeFileSync(logFile, '[]');
+}
+
+// Get all logs
+app.get('/logs', (req, res) => {
+  const logs = JSON.parse(fs.readFileSync(logFile, 'utf-8'));
+  res.json(logs);
+});
+
+// Post a new report
+app.post('/report', (req, res) => {
+  const { type, source, details } = req.body;
+
+  if (!type || !source || !details) {
+    return res.status(400).json({ message: 'Missing fields: type, source, or details.' });
+  }
+
+  const logs = JSON.parse(fs.readFileSync(logFile, 'utf-8'));
+  logs.push({
+    timestamp: new Date().toISOString(),
+    type,
+    source,
+    details
+  });
+
+  fs.writeFileSync(logFile, JSON.stringify(logs, null, 2));
+
+  res.json({ message: 'Incident logged successfully.' });
+});
+
+app.listen(PORT, () => {
+  console.log(`🚀 Trace Server running on http://localhost:${PORT}`);
+});
+''')
+
+# Sample anti-clone-bot report integration
+with open(bot_path + "/traceReporter.ts", "w") as f:
+    f.write('''import axios from 'axios';
+
+export async function reportToTraceServer(type: string, source: string, details: string) {
+  try {
+    await axios.post('http://localhost:3001/report', {
+      type,
+      source,
+      details
+    });
+    console.log('📝 Report sent to trace-server.');
+  } catch (err) {
+    console.error('❌ Failed to report to trace-server:', err);
+  }
+}
+''')
+
+# Create zip
+zip_path = "/mnt/data/blockmesh-trace-full.zip"
+shutil.make_archive(zip_path.replace(".zip", ""), 'zip', bundle_path)
+
+zip_path
